@@ -1,0 +1,184 @@
+name: Publish APK repository
+
+run-name: Publish APK repository
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-apk-repository
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      OPENWRT_SERIES: '25.12'
+      NFTFLOW_REPOSITORY: madwind/luci-app-nftflow
+      WLOC_REPOSITORY: madwind/luci-app-wloc
+      APK_SIGNING_KEY: ${{ secrets.APK_SIGNING_KEY }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Fail before downloading packages if the private key does not match the pinned public key.
+      - name: Prepare signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${APK_SIGNING_KEY:-}" ]]; then
+            echo 'Missing Actions secret: APK_SIGNING_KEY' >&2
+            exit 1
+          fi
+
+          signing_key="$RUNNER_TEMP/madwind-apk-signing.pem"
+          pinned_public_key="$GITHUB_WORKSPACE/keys/madwind.pem"
+          repository_dir="$RUNNER_TEMP/apk-repository"
+          umask 077
+          printf '%s\n' "$APK_SIGNING_KEY" > "$signing_key"
+          openssl ec -in "$signing_key" -check -noout
+          openssl pkey -pubin -in "$pinned_public_key" -noout
+
+          private_public_hash="$(openssl ec -in "$signing_key" -pubout -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+          pinned_public_hash="$(openssl pkey -pubin -in "$pinned_public_key" -outform DER | sha256sum | awk '{print $1}')"
+          if [[ "$private_public_hash" != "$pinned_public_hash" ]]; then
+            echo 'APK_SIGNING_KEY does not match keys/madwind.pem' >&2
+            echo "Pinned public key SHA256: $pinned_public_hash" >&2
+            exit 1
+          fi
+
+          mkdir -p "$repository_dir/keys"
+          cp "$pinned_public_key" "$repository_dir/keys/madwind.pem"
+          chmod 0644 "$repository_dir/keys/madwind.pem"
+
+      - name: Download latest package releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          incoming="$RUNNER_TEMP/incoming"
+          mkdir -p "$incoming/nftflow" "$incoming/wloc"
+
+          gh api "repos/$NFTFLOW_REPOSITORY/releases/latest" > "$incoming/nftflow-release.json"
+          gh api "repos/$WLOC_REPOSITORY/releases/latest" > "$incoming/wloc-release.json"
+
+          nftflow_tag="$(jq -er '.tag_name' "$incoming/nftflow-release.json")"
+          wloc_tag="$(jq -er '.tag_name' "$incoming/wloc-release.json")"
+
+          gh release download "$nftflow_tag" \
+            --repo "$NFTFLOW_REPOSITORY" \
+            --pattern 'luci-app-nftflow-*.apk' \
+            --dir "$incoming/nftflow"
+
+          gh release download "$wloc_tag" \
+            --repo "$WLOC_REPOSITORY" \
+            --pattern 'luci-app-wloc-*.apk' \
+            --dir "$incoming/wloc"
+
+          mapfile -t nftflow_apks < <(find "$incoming/nftflow" -maxdepth 1 -type f -name 'luci-app-nftflow-*.apk' -print)
+          [[ ${#nftflow_apks[@]} -eq 1 ]] || {
+            echo "Expected exactly one NftFlow APK, found ${#nftflow_apks[@]}" >&2
+            exit 1
+          }
+
+          for arch in x86_64 aarch64_generic aarch64_cortex-a53; do
+            mapfile -t wloc_apks < <(find "$incoming/wloc" -maxdepth 1 -type f -name "luci-app-wloc-*-${arch}.apk" -print)
+            [[ ${#wloc_apks[@]} -eq 1 ]] || {
+              echo "Expected exactly one WLOC APK for $arch, found ${#wloc_apks[@]}" >&2
+              exit 1
+            }
+          done
+
+          verify_assets() {
+            local metadata="$1"
+            local directory="$2"
+            local file name digest expected
+            while IFS= read -r -d '' file; do
+              name="$(basename "$file")"
+              digest="$(jq -er --arg name "$name" '.assets[] | select(.name == $name) | .digest' "$metadata")"
+              expected="${digest#sha256:}"
+              [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]] || {
+                echo "Missing SHA256 digest for $name" >&2
+                exit 1
+              }
+              printf '%s  %s\n' "$expected" "$file" | sha256sum --check --strict
+            done < <(find "$directory" -maxdepth 1 -type f -name '*.apk' -print0)
+          }
+
+          verify_assets "$incoming/nftflow-release.json" "$incoming/nftflow"
+          verify_assets "$incoming/wloc-release.json" "$incoming/wloc"
+
+          printf 'NFTFLOW_TAG=%s\n' "$nftflow_tag" >> "$GITHUB_ENV"
+          printf 'WLOC_TAG=%s\n' "$wloc_tag" >> "$GITHUB_ENV"
+
+      - name: Build signed repository indexes
+        shell: bash
+        run: |
+          set -euo pipefail
+          incoming="$RUNNER_TEMP/incoming"
+          repository_dir="$RUNNER_TEMP/apk-repository"
+          signing_key="$RUNNER_TEMP/madwind-apk-signing.pem"
+          nftflow_apk="$(find "$incoming/nftflow" -maxdepth 1 -type f -name 'luci-app-nftflow-*.apk' -print -quit)"
+          wloc_version="${WLOC_TAG#v}"
+
+          for arch in x86_64 aarch64_generic aarch64_cortex-a53; do
+            arch_dir="$repository_dir/$OPENWRT_SERIES/$arch"
+            wloc_apk="$(find "$incoming/wloc" -maxdepth 1 -type f -name "luci-app-wloc-*-${arch}.apk" -print -quit)"
+            mkdir -p "$arch_dir"
+            cp "$nftflow_apk" "$arch_dir/"
+            cp "$wloc_apk" "$arch_dir/luci-app-wloc-${wloc_version}.apk"
+
+            docker run --rm \
+              -v "$repository_dir:/repo" \
+              -v "$signing_key:/signing.pem:ro" \
+              -w "/repo/$OPENWRT_SERIES/$arch" \
+              alpine:3.23 \
+              sh -ec 'apk mkndx --allow-untrusted --sign /signing.pem --output packages.adb *.apk'
+
+            (
+              cd "$arch_dir"
+              sha256sum *.apk packages.adb > SHA256SUMS
+            )
+          done
+
+          jq -n \
+            --arg openwrt "$OPENWRT_SERIES" \
+            --arg nftflow "$NFTFLOW_TAG" \
+            --arg wloc "$WLOC_TAG" \
+            --arg generated "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            '{openwrt: $openwrt, nftflow: $nftflow, wloc: $wloc, generated: $generated}' \
+            > "$repository_dir/manifest.json"
+
+      - name: Publish repo branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository_dir="$RUNNER_TEMP/apk-repository"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin repo:refs/remotes/origin/repo 2>/dev/null || true
+
+          if git show-ref --verify --quiet refs/remotes/origin/repo; then
+            git switch --force-create repo refs/remotes/origin/repo
+          else
+            git switch --orphan repo
+          fi
+
+          git rm -rf . >/dev/null 2>&1 || true
+          git clean -fdx
+          cp -a "$repository_dir/." .
+          touch .nojekyll
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Repository already contains the latest packages.'
+            exit 0
+          fi
+
+          git commit -m "repo: publish $NFTFLOW_TAG and $WLOC_TAG"
+          git push origin repo
