@@ -9,9 +9,10 @@ Signed APK repository for packages maintained by `madwind` on OpenWrt 25.12.
 
 Runtime dependencies such as `xray-core` are not mirrored here. They remain managed by the official OpenWrt repositories.
 
-## Supported architecture
+## Supported architectures
 
-- `aarch64_generic`
+- `x86_64`: `luci-app-nftflow`
+- `aarch64_generic`: `luci-app-nftflow` and `luci-app-wloc`
 
 `luci-app-nftflow` is architecture-independent. `luci-app-wloc` is currently published only for `aarch64_generic`.
 
@@ -23,19 +24,19 @@ After the first repository publish succeeds:
 wget -O- https://raw.githubusercontent.com/madwind/openwrt-packages/main/install.sh | sh
 ```
 
-Then install packages normally:
+Then install the packages available for your architecture:
 
 ```sh
 apk add luci-app-nftflow
+```
+
+On `aarch64_generic`, WLOC is also available:
+
+```sh
 apk add luci-app-wloc
 ```
 
-To refresh package metadata and upgrade only these packages:
-
-```sh
-apk update
-apk add --upgrade luci-app-nftflow luci-app-wloc
-```
+To refresh package metadata and upgrade installed packages, use `apk update` followed by `apk add --upgrade <package>`.
 
 The installer adds the repository public key to `/etc/apk/keys/` and adds the architecture-specific `packages.adb` URL to `/etc/apk/repositories.d/customfeeds.list`.
 
@@ -47,6 +48,9 @@ The generated `repo` branch is the package repository:
 keys/
   madwind.pem
 25.12/
+  x86_64/
+    packages.adb
+    luci-app-nftflow-*.apk
   aarch64_generic/
     packages.adb
     luci-app-nftflow-*.apk

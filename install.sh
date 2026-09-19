@@ -35,8 +35,8 @@ arch="$(head -n 1 /etc/apk/arch 2>/dev/null | tr -d '\r' || true)"
 [ -n "$arch" ] || arch="$(apk --print-arch 2>/dev/null || true)"
 
 case "$arch" in
-    aarch64_generic) ;;
-    *) fail "unsupported package architecture: ${arch:-unknown}; this repository currently supports only aarch64_generic" ;;
+    x86_64|aarch64_generic) ;;
+    *) fail "unsupported package architecture: ${arch:-unknown}" ;;
 esac
 
 key_url="${RAW_BASE}/keys/madwind.pem"
@@ -65,4 +65,8 @@ rm -f "$feeds_tmp"
 apk update
 
 echo "openwrt-packages: repository configured for OpenWrt ${SERIES} / ${arch}"
-echo 'openwrt-packages: install with: apk add luci-app-nftflow luci-app-wloc'
+if [ "$arch" = 'aarch64_generic' ]; then
+    echo 'openwrt-packages: install with: apk add luci-app-nftflow luci-app-wloc'
+else
+    echo 'openwrt-packages: install with: apk add luci-app-nftflow'
+fi

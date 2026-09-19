@@ -123,24 +123,29 @@ jobs:
           nftflow_apk="$(find "$incoming/nftflow" -maxdepth 1 -type f -name 'luci-app-nftflow-*.apk' -print -quit)"
           wloc_version="${WLOC_TAG#v}"
 
-          arch=aarch64_generic
-          arch_dir="$repository_dir/$OPENWRT_SERIES/$arch"
           wloc_apk="$(find "$incoming/wloc" -maxdepth 1 -type f -name 'luci-app-wloc-*-aarch64_generic.apk' -print -quit)"
-          mkdir -p "$arch_dir"
-          cp "$nftflow_apk" "$arch_dir/"
-          cp "$wloc_apk" "$arch_dir/luci-app-wloc-${wloc_version}.apk"
 
-          docker run --rm \
-            -v "$repository_dir:/repo" \
-            -v "$signing_key:/signing.pem:ro" \
-            -w "/repo/$OPENWRT_SERIES/$arch" \
-            alpine:3.23 \
-            sh -ec 'apk mkndx --allow-untrusted --sign /signing.pem --output packages.adb *.apk'
+          for arch in x86_64 aarch64_generic; do
+            arch_dir="$repository_dir/$OPENWRT_SERIES/$arch"
+            mkdir -p "$arch_dir"
+            cp "$nftflow_apk" "$arch_dir/"
 
-          (
-            cd "$arch_dir"
-            sha256sum *.apk packages.adb > SHA256SUMS
-          )
+            if [[ "$arch" == "aarch64_generic" ]]; then
+              cp "$wloc_apk" "$arch_dir/luci-app-wloc-${wloc_version}.apk"
+            fi
+
+            docker run --rm \
+              -v "$repository_dir:/repo" \
+              -v "$signing_key:/signing.pem:ro" \
+              -w "/repo/$OPENWRT_SERIES/$arch" \
+              alpine:3.23 \
+              sh -ec 'apk mkndx --allow-untrusted --sign /signing.pem --output packages.adb *.apk'
+
+            (
+              cd "$arch_dir"
+              sha256sum *.apk packages.adb > SHA256SUMS
+            )
+          done
 
           jq -n \
             --arg openwrt "$OPENWRT_SERIES" \
