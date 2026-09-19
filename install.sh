@@ -35,8 +35,8 @@ arch="$(head -n 1 /etc/apk/arch 2>/dev/null | tr -d '\r' || true)"
 [ -n "$arch" ] || arch="$(apk --print-arch 2>/dev/null || true)"
 
 case "$arch" in
-    x86_64|aarch64_generic|aarch64_cortex-a53) ;;
-    *) fail "unsupported package architecture: ${arch:-unknown}" ;;
+    aarch64_generic) ;;
+    *) fail "unsupported package architecture: ${arch:-unknown}; this repository currently supports only aarch64_generic" ;;
 esac
 
 key_url="${RAW_BASE}/keys/madwind.pem"

@@ -9,13 +9,11 @@ Signed APK repository for packages maintained by `madwind` on OpenWrt 25.12.
 
 Runtime dependencies such as `xray-core` are not mirrored here. They remain managed by the official OpenWrt repositories.
 
-## Supported architectures
+## Supported architecture
 
-- `x86_64`
 - `aarch64_generic`
-- `aarch64_cortex-a53`
 
-`luci-app-nftflow` is architecture-independent and is included in every repository. `luci-app-wloc` uses the matching architecture-specific release asset.
+`luci-app-nftflow` is architecture-independent. `luci-app-wloc` is currently published only for `aarch64_generic`.
 
 ## Add the repository
 
@@ -49,18 +47,10 @@ The generated `repo` branch is the package repository:
 keys/
   madwind.pem
 25.12/
-  x86_64/
-    packages.adb
-    luci-app-nftflow-*.apk
-    luci-app-wloc-*-x86_64.apk
   aarch64_generic/
     packages.adb
     luci-app-nftflow-*.apk
     luci-app-wloc-*-aarch64_generic.apk
-  aarch64_cortex-a53/
-    packages.adb
-    luci-app-nftflow-*.apk
-    luci-app-wloc-*-aarch64_cortex-a53.apk
 ```
 
 The publish workflow downloads the latest stable GitHub Release APKs from `madwind/luci-app-nftflow` and `madwind/luci-app-wloc`, builds signed APK v3 indexes, and replaces the generated `repo` branch only when its contents change.

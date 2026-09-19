@@ -76,7 +76,7 @@ jobs:
 
           gh release download "$wloc_tag" \
             --repo "$WLOC_REPOSITORY" \
-            --pattern 'luci-app-wloc-*.apk' \
+            --pattern 'luci-app-wloc-*-aarch64_generic.apk' \
             --dir "$incoming/wloc"
 
           mapfile -t nftflow_apks < <(find "$incoming/nftflow" -maxdepth 1 -type f -name 'luci-app-nftflow-*.apk' -print)
@@ -85,13 +85,11 @@ jobs:
             exit 1
           }
 
-          for arch in x86_64 aarch64_generic aarch64_cortex-a53; do
-            mapfile -t wloc_apks < <(find "$incoming/wloc" -maxdepth 1 -type f -name "luci-app-wloc-*-${arch}.apk" -print)
-            [[ ${#wloc_apks[@]} -eq 1 ]] || {
-              echo "Expected exactly one WLOC APK for $arch, found ${#wloc_apks[@]}" >&2
-              exit 1
-            }
-          done
+          mapfile -t wloc_apks < <(find "$incoming/wloc" -maxdepth 1 -type f -name 'luci-app-wloc-*-aarch64_generic.apk' -print)
+          [[ ${#wloc_apks[@]} -eq 1 ]] || {
+            echo "Expected exactly one WLOC APK for aarch64_generic, found ${#wloc_apks[@]}" >&2
+            exit 1
+          }
 
           verify_assets() {
             local metadata="$1"
@@ -125,25 +123,24 @@ jobs:
           nftflow_apk="$(find "$incoming/nftflow" -maxdepth 1 -type f -name 'luci-app-nftflow-*.apk' -print -quit)"
           wloc_version="${WLOC_TAG#v}"
 
-          for arch in x86_64 aarch64_generic aarch64_cortex-a53; do
-            arch_dir="$repository_dir/$OPENWRT_SERIES/$arch"
-            wloc_apk="$(find "$incoming/wloc" -maxdepth 1 -type f -name "luci-app-wloc-*-${arch}.apk" -print -quit)"
-            mkdir -p "$arch_dir"
-            cp "$nftflow_apk" "$arch_dir/"
-            cp "$wloc_apk" "$arch_dir/luci-app-wloc-${wloc_version}.apk"
+          arch=aarch64_generic
+          arch_dir="$repository_dir/$OPENWRT_SERIES/$arch"
+          wloc_apk="$(find "$incoming/wloc" -maxdepth 1 -type f -name 'luci-app-wloc-*-aarch64_generic.apk' -print -quit)"
+          mkdir -p "$arch_dir"
+          cp "$nftflow_apk" "$arch_dir/"
+          cp "$wloc_apk" "$arch_dir/luci-app-wloc-${wloc_version}.apk"
 
-            docker run --rm \
-              -v "$repository_dir:/repo" \
-              -v "$signing_key:/signing.pem:ro" \
-              -w "/repo/$OPENWRT_SERIES/$arch" \
-              alpine:3.23 \
-              sh -ec 'apk mkndx --allow-untrusted --sign /signing.pem --output packages.adb *.apk'
+          docker run --rm \
+            -v "$repository_dir:/repo" \
+            -v "$signing_key:/signing.pem:ro" \
+            -w "/repo/$OPENWRT_SERIES/$arch" \
+            alpine:3.23 \
+            sh -ec 'apk mkndx --allow-untrusted --sign /signing.pem --output packages.adb *.apk'
 
-            (
-              cd "$arch_dir"
-              sha256sum *.apk packages.adb > SHA256SUMS
-            )
-          done
+          (
+            cd "$arch_dir"
+            sha256sum *.apk packages.adb > SHA256SUMS
+          )
 
           jq -n \
             --arg openwrt "$OPENWRT_SERIES" \
