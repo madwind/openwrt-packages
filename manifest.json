@@ -1,6 +1,6 @@
 {
   "openwrt": "25.12",
-  "nftflow": "v2.2.2-r1",
-  "wloc": "v1.1.0-r3",
-  "generated": "2026-09-20T13:41:52Z"
+  "nftflow": "v2.2.4-r1",
+  "wloc": "v1.1.1-r1",
+  "generated": "2026-10-02T01:37:26Z"
 }
